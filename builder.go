@@ -173,6 +173,7 @@ func (b *kubeBuilder) Build(target resolver.Target, cc resolver.ClientConn, opts
 		endpoints:      endpointsForTarget.WithLabelValues(ti.String()),
 		addresses:      addressesForTarget.WithLabelValues(ti.String()),
 		lastUpdateUnix: clientLastUpdate.WithLabelValues(ti.String()),
+		currentState:   make(map[string]EndpointSlice),
 	}
 	r.wg.Add(1)
 	go until(func() {
@@ -254,39 +255,49 @@ func (k *kResolver) makeAddresses(e EndpointSlice) ([]resolver.Address, string) 
 	return newAddrs, ""
 }
 
-func (k *kResolver) handle(e EndpointSlice, eventType EventType) {
+func (k *kResolver) handle(endpointSlice EndpointSlice, eventType EventType) {
 	switch eventType {
-	case Added:
-		k.currentState[e.Name] = e
-	case Modified:
-		k.currentState[e.Name] = e
+	case Added, Modified:
+		k.currentState[endpointSlice.Metadata.Name] = endpointSlice
 	case Deleted:
-		delete(k.currentState, e.Name)
+		delete(k.currentState, endpointSlice.Metadata.Name)
 	default:
 
 	}
-	var currentState map[resolver.Address]bool
-	var keys []resolver.Address
-	for _, value := range k.currentState {
-		addresses, _ := k.makeAddresses(value)
+	var dedupedAddressesSet map[resolver.Address]struct{}
+	for _, endpointSlice := range k.currentState {
+		addresses, _ := k.makeAddresses(endpointSlice)
 		for _, address := range addresses {
-			currentState[address] = true
-		}
-
-		keys = make([]resolver.Address, 0, len(currentState))
-		for key := range currentState {
-			keys = append(keys, key)
+			dedupedAddressesSet[address] = struct{}{}
 		}
 	}
-	if len(keys) > 0 {
+
+	var addresses []resolver.Address
+	for address := range dedupedAddressesSet {
+		addresses = append(addresses, address)
+	}
+	if len(addresses) > 0 {
 		k.cc.UpdateState(resolver.State{
-			Addresses: keys,
+			Addresses: addresses,
 		})
 		k.lastUpdateUnix.Set(float64(time.Now().Unix()))
 	}
 
-	k.endpoints.Set(float64(len(e.Endpoints)))
-	k.addresses.Set(float64(len(keys)))
+	k.endpoints.Set(float64(len(endpointSlice.Endpoints)))
+	k.addresses.Set(float64(len(addresses)))
+}
+
+func updateCurrentState(k *kResolver, endpointSlice EndpointSlice, eventType EventType) {
+	switch eventType {
+	case Added:
+		k.currentState[endpointSlice.Metadata.Name] = endpointSlice
+	case Modified:
+		k.currentState[endpointSlice.Metadata.Name] = endpointSlice
+	case Deleted:
+		delete(k.currentState, endpointSlice.Metadata.Name)
+	default:
+
+	}
 }
 
 func (k *kResolver) resolve() {
