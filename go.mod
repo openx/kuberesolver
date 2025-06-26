@@ -1,4 +1,4 @@
-module github.com/sercand/kuberesolver/v6
+module github.com/openx/kuberesolver
 
 go 1.22.0
 

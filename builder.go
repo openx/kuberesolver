@@ -2,6 +2,7 @@ package kuberesolver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -256,9 +257,11 @@ func (k *kResolver) makeAddresses(e EndpointSlice) ([]resolver.Address, string) 
 }
 
 func (k *kResolver) handle(endpointSlice EndpointSlice, eventType EventType) {
-	k.updateCurrentState(endpointSlice, eventType)
-	dedupedAddressesSet := k.buildAvailableAddresses()
-	addresses := k.deduplicateAddress(dedupedAddressesSet)
+	err := k.updateCurrentState(endpointSlice, eventType)
+	if err != nil {
+		return
+	}
+	addresses := k.buildAvailableAddresses()
 
 	if len(addresses) > 0 {
 		k.cc.UpdateState(resolver.State{
@@ -271,7 +274,7 @@ func (k *kResolver) handle(endpointSlice EndpointSlice, eventType EventType) {
 	k.addresses.Set(float64(len(addresses)))
 }
 
-func (k *kResolver) updateCurrentState(endpointSlice EndpointSlice, eventType EventType) {
+func (k *kResolver) updateCurrentState(endpointSlice EndpointSlice, eventType EventType) error {
 	switch eventType {
 	case Added:
 		k.currentState[endpointSlice.Metadata.Name] = endpointSlice
@@ -280,24 +283,25 @@ func (k *kResolver) updateCurrentState(endpointSlice EndpointSlice, eventType Ev
 	case Deleted:
 		delete(k.currentState, endpointSlice.Metadata.Name)
 	default:
-		return
+		return errors.New("unknown EventType")
 	}
+	return nil
 }
 
-func (k *kResolver) buildAvailableAddresses() map[resolver.Address]struct{} {
-	var dedupedAddressesSet map[resolver.Address]struct{}
+func (k *kResolver) buildAvailableAddresses() []resolver.Address {
+	var availableAddressesSet map[string]resolver.Address
 	for _, endpointSlice := range k.currentState {
 		addresses, _ := k.makeAddresses(endpointSlice)
 		for _, address := range addresses {
-			dedupedAddressesSet[address] = struct{}{}
+			availableAddressesSet[address.Addr] = address
 		}
 	}
-	return dedupedAddressesSet
+	return k.addressesSetToList(availableAddressesSet)
 }
 
-func (k *kResolver) deduplicateAddress(dedupedAddressesSet map[resolver.Address]struct{}) []resolver.Address {
+func (k *kResolver) addressesSetToList(dedupedAddressesSet map[string]resolver.Address) []resolver.Address {
 	var addresses []resolver.Address
-	for address := range dedupedAddressesSet {
+	for _, address := range dedupedAddressesSet {
 		addresses = append(addresses, address)
 	}
 	return addresses
