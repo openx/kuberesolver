@@ -256,26 +256,10 @@ func (k *kResolver) makeAddresses(e EndpointSlice) ([]resolver.Address, string) 
 }
 
 func (k *kResolver) handle(endpointSlice EndpointSlice, eventType EventType) {
-	switch eventType {
-	case Added, Modified:
-		k.currentState[endpointSlice.Metadata.Name] = endpointSlice
-	case Deleted:
-		delete(k.currentState, endpointSlice.Metadata.Name)
-	default:
+	k.updateCurrentState(endpointSlice, eventType)
+	dedupedAddressesSet := k.buildAvailableAddresses()
+	addresses := k.deduplicateAddress(dedupedAddressesSet)
 
-	}
-	var dedupedAddressesSet map[resolver.Address]struct{}
-	for _, endpointSlice := range k.currentState {
-		addresses, _ := k.makeAddresses(endpointSlice)
-		for _, address := range addresses {
-			dedupedAddressesSet[address] = struct{}{}
-		}
-	}
-
-	var addresses []resolver.Address
-	for address := range dedupedAddressesSet {
-		addresses = append(addresses, address)
-	}
 	if len(addresses) > 0 {
 		k.cc.UpdateState(resolver.State{
 			Addresses: addresses,
@@ -287,7 +271,7 @@ func (k *kResolver) handle(endpointSlice EndpointSlice, eventType EventType) {
 	k.addresses.Set(float64(len(addresses)))
 }
 
-func updateCurrentState(k *kResolver, endpointSlice EndpointSlice, eventType EventType) {
+func (k *kResolver) updateCurrentState(endpointSlice EndpointSlice, eventType EventType) {
 	switch eventType {
 	case Added:
 		k.currentState[endpointSlice.Metadata.Name] = endpointSlice
@@ -296,8 +280,27 @@ func updateCurrentState(k *kResolver, endpointSlice EndpointSlice, eventType Eve
 	case Deleted:
 		delete(k.currentState, endpointSlice.Metadata.Name)
 	default:
-
+		return
 	}
+}
+
+func (k *kResolver) buildAvailableAddresses() map[resolver.Address]struct{} {
+	var dedupedAddressesSet map[resolver.Address]struct{}
+	for _, endpointSlice := range k.currentState {
+		addresses, _ := k.makeAddresses(endpointSlice)
+		for _, address := range addresses {
+			dedupedAddressesSet[address] = struct{}{}
+		}
+	}
+	return dedupedAddressesSet
+}
+
+func (k *kResolver) deduplicateAddress(dedupedAddressesSet map[resolver.Address]struct{}) []resolver.Address {
+	var addresses []resolver.Address
+	for address := range dedupedAddressesSet {
+		addresses = append(addresses, address)
+	}
+	return addresses
 }
 
 func (k *kResolver) resolve() {
