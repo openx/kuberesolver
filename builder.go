@@ -177,12 +177,15 @@ func (b *kubeBuilder) Build(target resolver.Target, cc resolver.ClientConn, opts
 		currentState:   make(map[string]EndpointSlice),
 	}
 	r.wg.Add(1)
-	go until(func() {
-		err := r.watch()
-		if err != nil && err != io.EOF {
-			grpclog.Errorf("kuberesolver: watching ended with error='%v', will reconnect again", err)
-		}
-	}, time.Second, time.Second*30, ctx.Done())
+	go func() {
+		defer r.wg.Done()
+		until(func() {
+			err := r.watch()
+			if err != nil && err != io.EOF {
+				grpclog.Errorf("kuberesolver: watching ended with error='%v', will reconnect again", err)
+			}
+		}, time.Second, time.Second*30, ctx.Done())
+	}()
 	return r, nil
 }
 
@@ -321,7 +324,6 @@ func (k *kResolver) resolve() {
 }
 
 func (k *kResolver) watch() error {
-	defer k.wg.Done()
 	// watch endpoints lists existing endpoints at start
 	sw, err := watchEndpointSlice(k.ctx, k.k8sClient, k.target.serviceNamespace, k.target.serviceName)
 	if err != nil {
