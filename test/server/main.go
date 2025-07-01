@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"net"
 	"os"
@@ -17,22 +16,12 @@ type server struct {
 }
 
 func (s *server) GetServerIP(ctx context.Context, req *pb.Request) (*pb.Response, error) {
-	hostname, _ := os.Hostname()
-	ip := getOutboundIP()
-	return &pb.Response{Ip: fmt.Sprintf("%s (%s)", ip, hostname)}, nil
-}
-
-func getOutboundIP() string {
-	conn, err := net.Dial("udp", "8.8.8.8:80")
-	if err != nil {
-		return "unknown"
-	}
-	defer conn.Close()
-	localAddr := conn.LocalAddr().(*net.UDPAddr)
-	return localAddr.IP.String()
+	ip := os.Getenv("IP_ADDR")
+	return &pb.Response{Ip: ip}, nil
 }
 
 func main() {
+	log.Println(os.Getenv("IP_ADDR"))
 	lis, err := net.Listen("tcp", ":50051")
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)

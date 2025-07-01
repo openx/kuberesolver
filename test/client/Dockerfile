@@ -18,4 +18,6 @@ WORKDIR /root/
 
 COPY --from=build /app/client .
 
+EXPOSE 50052
+
 CMD ["./client"]

@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: server
 spec:
-  replicas: 2
+  replicas: 3
   selector:
     matchLabels:
       app: server
@@ -16,6 +16,11 @@ spec:
         - name: server
           image: grpc-test-server:latest
           imagePullPolicy: Never
+          env:
+            - name: IP_ADDR
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
           ports:
             - containerPort: 50051
 ---
