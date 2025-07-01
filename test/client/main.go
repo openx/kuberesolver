@@ -7,7 +7,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"log"
-	"time"
 )
 
 func main() {
@@ -45,6 +44,4 @@ func main() {
 	for k, v := range ipRequest {
 		log.Printf("key: %s  value: %v\n", k, v)
 	}
-
-	time.Sleep(120 * time.Second)
 }

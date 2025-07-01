@@ -1,4 +1,5 @@
-
+start-minikube:
+	minikube start --extra-config=controller-manager.max-endpoints-per-slice=2
 
 build:
 	docker build -t grpc-test-server:latest -f test/server/Dockerfile .
