@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package echo;
+
+option go_package = "proto/proto;echo";
+
+service Echo {
+  rpc GetServerIP(Request) returns (Response);
+}
+
+message Request {}
+
+message Response {
+  string ip = 1;
+}

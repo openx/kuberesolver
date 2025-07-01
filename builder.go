@@ -292,7 +292,7 @@ func (k *kResolver) updateCurrentState(endpointSlice EndpointSlice, eventType Ev
 }
 
 func (k *kResolver) buildAvailableAddresses() []resolver.Address {
-	var availableAddressesSet map[string]resolver.Address
+	availableAddressesSet := make(map[string]resolver.Address)
 	for _, endpointSlice := range k.currentState {
 		addresses, _ := k.makeAddresses(endpointSlice)
 		for _, address := range addresses {
