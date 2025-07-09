@@ -2,6 +2,7 @@ package kuberesolver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -173,14 +174,18 @@ func (b *kubeBuilder) Build(target resolver.Target, cc resolver.ClientConn, opts
 		endpoints:      endpointsForTarget.WithLabelValues(ti.String()),
 		addresses:      addressesForTarget.WithLabelValues(ti.String()),
 		lastUpdateUnix: clientLastUpdate.WithLabelValues(ti.String()),
+		currentState:   make(map[string]EndpointSlice),
 	}
 	r.wg.Add(1)
-	go until(func() {
-		err := r.watch()
-		if err != nil && err != io.EOF {
-			grpclog.Errorf("kuberesolver: watching ended with error='%v', will reconnect again", err)
-		}
-	}, time.Second, time.Second*30, ctx.Done())
+	go func() {
+		defer r.wg.Done()
+		until(func() {
+			err := r.watch()
+			if err != nil && err != io.EOF {
+				grpclog.Errorf("kuberesolver: watching ended with error='%v', will reconnect again", err)
+			}
+		}, time.Second, time.Second*30, ctx.Done())
+	}()
 	return r, nil
 }
 
@@ -205,6 +210,7 @@ type kResolver struct {
 	addresses prometheus.Gauge
 	// lastUpdateUnix is the timestamp of the last successful update to the resolver client
 	lastUpdateUnix prometheus.Gauge
+	currentState   map[string]EndpointSlice
 }
 
 // ResolveNow will be called by gRPC to try to resolve the target name again.
@@ -253,24 +259,62 @@ func (k *kResolver) makeAddresses(e EndpointSlice) ([]resolver.Address, string) 
 	return newAddrs, ""
 }
 
-func (k *kResolver) handle(e EndpointSlice) {
-	addrs, _ := k.makeAddresses(e)
-	if len(addrs) > 0 {
+func (k *kResolver) handle(endpointSlice EndpointSlice, eventType EventType) {
+	err := k.updateCurrentState(endpointSlice, eventType)
+	if err != nil {
+		return
+	}
+	addresses := k.buildAvailableAddresses()
+
+	if len(addresses) > 0 {
 		k.cc.UpdateState(resolver.State{
-			Addresses: addrs,
+			Addresses: addresses,
 		})
 		k.lastUpdateUnix.Set(float64(time.Now().Unix()))
 	}
 
-	k.endpoints.Set(float64(len(e.Endpoints)))
-	k.addresses.Set(float64(len(addrs)))
+	k.endpoints.Set(float64(len(endpointSlice.Endpoints)))
+	k.addresses.Set(float64(len(addresses)))
+}
+
+func (k *kResolver) updateCurrentState(endpointSlice EndpointSlice, eventType EventType) error {
+	switch eventType {
+	case Added:
+		k.currentState[endpointSlice.Metadata.Name] = endpointSlice
+	case Modified:
+		k.currentState[endpointSlice.Metadata.Name] = endpointSlice
+	case Deleted:
+		delete(k.currentState, endpointSlice.Metadata.Name)
+	default:
+		return errors.New("unknown EventType")
+	}
+	return nil
+}
+
+func (k *kResolver) buildAvailableAddresses() []resolver.Address {
+	availableAddressesSet := make(map[string]resolver.Address)
+	for _, endpointSlice := range k.currentState {
+		addresses, _ := k.makeAddresses(endpointSlice)
+		for _, address := range addresses {
+			availableAddressesSet[address.Addr] = address
+		}
+	}
+	return k.addressesSetToList(availableAddressesSet)
+}
+
+func (k *kResolver) addressesSetToList(dedupedAddressesSet map[string]resolver.Address) []resolver.Address {
+	var addresses []resolver.Address
+	for _, address := range dedupedAddressesSet {
+		addresses = append(addresses, address)
+	}
+	return addresses
 }
 
 func (k *kResolver) resolve() {
 	list, err := getEndpointSliceList(k.k8sClient, k.target.serviceNamespace, k.target.serviceName)
 	if err == nil {
 		for _, e := range list.Items {
-			k.handle(e)
+			k.handle(e, Added)
 		}
 	} else {
 		grpclog.Errorf("kuberesolver: lookup endpoints failed: %v", err)
@@ -280,7 +324,6 @@ func (k *kResolver) resolve() {
 }
 
 func (k *kResolver) watch() error {
-	defer k.wg.Done()
 	// watch endpoints lists existing endpoints at start
 	sw, err := watchEndpointSlice(k.ctx, k.k8sClient, k.target.serviceNamespace, k.target.serviceName)
 	if err != nil {
@@ -294,7 +337,7 @@ func (k *kResolver) watch() error {
 			k.resolve()
 		case up, hasMore := <-sw.ResultChan():
 			if hasMore {
-				k.handle(up.Object)
+				k.handle(up.Object, up.Type)
 			} else {
 				return nil
 			}
