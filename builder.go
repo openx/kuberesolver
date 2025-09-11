@@ -256,6 +256,7 @@ func (k *kResolver) makeAddresses(e EndpointSlice) ([]resolver.Address, string) 
 		}
 	}
 
+	grpclog.Infof("kuberesolver: build addresses for resolver from endpoint slice %+v: %+v", e, newAddrs)
 	return newAddrs, ""
 }
 

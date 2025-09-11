@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"google.golang.org/grpc/grpclog"
 )
 
 const (
@@ -172,6 +173,10 @@ func getEndpointSliceList(client K8sClient, namespace, targetName string) (Endpo
 	}
 	result := EndpointSliceList{}
 	err = json.NewDecoder(resp.Body).Decode(&result)
+	if err != nil {
+		return EndpointSliceList{}, err
+	}
+	grpclog.Infof("kuberesolver: decoded message in get: %+v", result)
 	return result, err
 }
 

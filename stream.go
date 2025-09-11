@@ -88,6 +88,7 @@ func (sw *streamWatcher) receive() {
 			}
 			return
 		}
+		grpclog.Infof("kuberesolver: decoded message in watch: %+v", obj)
 		sw.result <- obj
 	}
 }
