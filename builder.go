@@ -243,7 +243,7 @@ func (k *kResolver) makeAddresses(e EndpointSlice) ([]resolver.Address, string) 
 
 	var newAddrs []resolver.Address
 	for _, endpoint := range e.Endpoints {
-		if endpoint.Conditions.Ready == nil || !*endpoint.Conditions.Ready {
+		if !isReady(endpoint) {
 			continue
 		}
 
@@ -343,4 +343,11 @@ func (k *kResolver) watch() error {
 			}
 		}
 	}
+}
+
+func isReady(endpoint Endpoint) bool {
+	isReady := endpoint.Conditions.Ready == nil || *endpoint.Conditions.Ready
+	isServing := endpoint.Conditions.Serving == nil || *endpoint.Conditions.Serving
+	isTerminating := endpoint.Conditions.Terminating != nil && *endpoint.Conditions.Terminating
+	return isReady && isServing && !isTerminating
 }
